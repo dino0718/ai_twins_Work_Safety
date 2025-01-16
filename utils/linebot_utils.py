@@ -89,7 +89,7 @@ def linebot():
 
 def handle_violation_query():
     """
-    處理違規數據查詢，生成包含法條與建議的回應，由 LLM 動態生成。
+    處理違規數據查詢，生成包含照片與法條數據的回應，並調用大語言模型生成專業回應。
     """
     if not os.path.exists(VIOLATIONS_CSV_PATH):
         return "違規數據尚未生成，請稍後再試。"
@@ -97,35 +97,48 @@ def handle_violation_query():
     # 加載違規數據
     df = pd.read_csv(VIOLATIONS_CSV_PATH)
 
+    # 去重處理照片名稱，獲取所有違規記錄的照片與時間
+    unique_photos = df.drop_duplicates(subset=["image_name"])[["image_name", "timestamp"]]
+    photo_details = "\n".join(
+        f"照片名稱：{row['image_name']} 違規時間：{row['timestamp']}"
+        for _, row in unique_photos.iterrows()
+    )
+
+    # 計算唯一照片總數
+    total_photos = len(unique_photos)
+
     # 統計違規次數
     violation_counts = df["class"].value_counts()
-    primary_violation = violation_counts.index[0]  # 使用主要違規類型作為關鍵字
+    total_violations = sum(violation_counts)
+    primary_violation = violation_counts.index[0]
 
-    # 查詢相關法條
+    # 查詢主要違規類型的相關法條
     laws = query_related_laws(primary_violation)
-
-    # 構造傳遞給 LLM 的上下文
     law_details = "\n".join(
-        [f"{i+1}. {law['law']}" for i, law in enumerate(laws)]
-    )
-    violation_stats = "\n".join(
-        [f"- {cls}: {count} 次" for cls, count in violation_counts.items()]
+        [f"{i+1}. {law['law']}" for i, law in enumerate(laws) if law.get("law")]  # 過濾掉無效數據
     )
 
     # 構建 LLM 的 Prompt
     prompt = f"""
-根據以下數據，請生成一份完整的回應，內容包括違規統計、相關法條，以及改進建議：
+根據以下數據，請生成一份完整的回應，內容包括違規照片信息、統計數據、主要違規類型相關法條，以及2個具體改進建議：
 
-違規數據統計：
-{violation_stats}
+違規照片信息：
+{photo_details}
 
-相關法條：
+本次檢查總共收集到 {total_photos} 張照片，涉及 {total_violations} 起違規事件。
+
+違規類型統計：
+{violation_counts.to_string(header=False)}
+
+主要違規類型相關法條：
 {law_details}
 
 ### 要求：
 1. 使用專業且易於理解的語言。
 2. 將違規數據與相關法條聯繫起來。
-3. 提供2個具體、可執行的改進建議，並詢問是否需要協助寄送違規單。
+3. 提供2個具體、可執行的改進建議。
+4. 詢問是否需要協助寄送違規單。
+5. 避免使用符號或表情符號。
     """
     try:
         # 調用大語言模型生成回應
@@ -141,6 +154,12 @@ def handle_violation_query():
     except Exception as e:
         print(f"Error while calling GPT: {e}")
         return "很抱歉，無法處理您的請求，請稍後再試。"
+
+
+
+
+
+
     
 
 def send_violation_notice():

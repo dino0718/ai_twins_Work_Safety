@@ -25,6 +25,7 @@ def query_related_laws(violation_type, k=3):
 def process_violations_with_laws(results_file, output_file):
     """
     根據檢測結果匹配相關法規，並保存到新的 CSV 文件中。
+    只處理信心值低於 70 分的資料。
     :param results_file: 檢測結果文件的路徑（CSV 格式）。
     :param output_file: 輸出文件的路徑（CSV 格式）。
     """
@@ -46,19 +47,32 @@ def process_violations_with_laws(results_file, output_file):
         writer.writeheader()
 
         for row in reader:
-            violation_type = row["class"]
-            related_laws = query_related_laws(violation_type)
-            for law in related_laws:
-                writer.writerow({
-                    "image_name": row["image_name"],
-                    "class": row["class"],
-                    "confidence": row["confidence"],
-                    "xmin": row["xmin"],
-                    "ymin": row["ymin"],
-                    "xmax": row["xmax"],
-                    "ymax": row["ymax"],
-                    "law": law["law"],
-                    "source": law["source"],
-                    "timestamp": datetime.now().isoformat()
-                })
+            # 只處理信心值低於 70 的違規項目
+            if float(row["confidence"]) < 70:
+                violation_type = row["class"]
+                related_laws = query_related_laws(violation_type)
+                for law in related_laws:
+                    writer.writerow({
+                        "image_name": row["image_name"],
+                        "class": row["class"],
+                        "confidence": row["confidence"],
+                        "xmin": row["xmin"],
+                        "ymin": row["ymin"],
+                        "xmax": row["xmax"],
+                        "ymax": row["ymax"],
+                        "law": law["law"],
+                        "source": law["source"],
+                        "timestamp": datetime.now().isoformat()
+                    })
     print(f"✅ 匹配結果已保存到：{output_file}")
+
+
+
+def main():
+    # Example usage
+    results_file = "/home/ntc/dino/工安管理/ai-new/data/results.csv"  # 修改為你的檢測結果文件路徑
+    output_file = "/home/ntc/dino/工安管理/ai-new/data/violations_with_laws.csv"  # 修改為你的輸出文件路徑
+    process_violations_with_laws(results_file, output_file)
+
+if __name__ == "__main__":
+    main()
