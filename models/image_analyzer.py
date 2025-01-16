@@ -2,98 +2,117 @@ import sys
 import os
 import torch
 import cv2
-import pandas as pd
+import csv
 from datetime import datetime
-
+from pathlib import Path
 
 # 添加 YOLOv5 文件夾到 Python 搜索路徑
 YOLOV5_PATH = os.path.join(os.path.dirname(__file__), 'yolov5')
 sys.path.append(YOLOV5_PATH)
-sys.path.append(os.path.join(YOLOV5_PATH, 'utils'))  # 確保 YOLOv5 的 utils 被正確引用
-from yolov5.models.common import DetectMultiBackend
 
+
+from yolov5.models.common import DetectMultiBackend
+from yolov5.utils.general import non_max_suppression, scale_boxes, xyxy2xywh
+from yolov5.utils.torch_utils import select_device
+
+# 添加 YOLOv5 文件夾到 Python 搜索路徑
+YOLOV5_PATH = os.path.join(os.path.dirname(__file__), 'yolov5')
+sys.path.append(YOLOV5_PATH)
 
 # 模型路徑
-MODEL_PATH = "/home/ntc/dino/工安管理/ai-new/models/best.pt"
+MODEL_PATH = "/home/ntc/dino/工安管理/ai-new/models/best_teacher.pt"
 
-# 加載 YOLO 模型
-device = torch.device('cpu')  # 或 'cuda' 如果您有 GPU
+# 初始化 YOLO 模型
+device = select_device('cpu')  # 替換為 'cuda:0' 使用 GPU
 model = DetectMultiBackend(MODEL_PATH, device=device)
+
 print(f"✅ 成功加載模型：{MODEL_PATH}")
 
-# results = model('/home/ntc/dino/工安管理/ai-new/data/images/186510343_1816338865193347_2587363028274937400_n.jpg')  # 替換為您要測試的圖像路徑
-# results.show()  # 顯示推理結果
-
-# 定義影像分析函數
-def analyze_image(image_path):
+def analyze_image(image_path, conf_thres=0.25, iou_thres=0.45):
     """
-    使用本地 YOLOv5 模型分析影像並檢測違規行為。
+    使用 YOLO 模型檢測單張影像，並返回檢測結果。
     """
-    # 加載影像並轉換格式
+    # 加載影像
     img = cv2.imread(image_path)
     if img is None:
         raise ValueError(f"無法加載影像：{image_path}")
+    img0 = img.copy()  # 保存原始影像
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  # 轉為 RGB 格式
 
-    # 使用模型進行推論
-    results = model(img)
+    # 確保影像大小符合 YOLO 的要求
+    img = cv2.resize(img, (640, 640))  # 調整為 640x640 的大小
 
-    # 確認返回的結果
-    print("模型推論結果：", results)
+    # 將影像轉換為 PyTorch 張量
+    img = torch.from_numpy(img).permute(2, 0, 1).float().to(device)  # [H, W, C] -> [C, H, W]
+    img = img.unsqueeze(0)  # 增加 batch 維度
+    img /= 255.0  # 歸一化到 [0, 1]
 
-    # 提取檢測結果
-    try:
-        detections = results.pandas().xyxy[0]  # 檢測結果為 Pandas DataFrame
-    except Exception as e:
-        raise ValueError(f"檢測結果提取失敗：{e}")
+    # 推論
+    pred = model(img)
+    pred = non_max_suppression(pred, conf_thres, iou_thres)
 
-    violations = []
-    for _, row in detections.iterrows():
-        violations.append({
-            "label": row['name'],  # 類別名稱
-            "confidence": row['confidence'],  # 信心分數
-            "bbox": [row['xmin'], row['ymin'], row['xmax'], row['ymax']]  # 邊界框座標
-        })
-
-    return violations
-
-
-
-
-def process_images(input_dir, output_csv="/home/ntc/dino/工安管理/ai-new/data/violations.csv"):
-    """
-    批量處理影像，檢測違規行為並保存結果到 CSV。
-    """
-    os.makedirs(os.path.dirname(output_csv), exist_ok=True)
-    all_violations = []
-
-    # 遍歷輸入資料夾中的圖片
-    for filename in os.listdir(input_dir):
-        filepath = os.path.join(input_dir, filename)
-        if filepath.lower().endswith(('.jpg', '.png', '.jpeg')):
-            results = analyze_image(filepath)  # 單張圖片檢測
-            for result in results:
-                all_violations.append({
-                    "image_id": filename,
-                    "timestamp": datetime.now().isoformat(),
-                    "violation_type": result["label"],
-                    "confidence": result["confidence"],
-                    "bbox": result["bbox"]
+    # 處理檢測結果
+    results = []
+    for det in pred:
+        if det is not None and len(det):
+            det[:, :4] = scale_boxes(img.shape[2:], det[:, :4], img0.shape).round()
+            for *xyxy, conf, cls in det:
+                results.append({
+                    "class": model.names[int(cls)],
+                    "confidence": float(conf),
+                    "xmin": int(xyxy[0]),
+                    "ymin": int(xyxy[1]),
+                    "xmax": int(xyxy[2]),
+                    "ymax": int(xyxy[3])
                 })
+    return results
 
-    # 保存到 CSV
-    df = pd.DataFrame(all_violations)
-    df.to_csv(output_csv, index=False, encoding='utf-8')
-    print(f"✅ 批量檢測完成，結果已保存到 {output_csv}")
+def batch_analyze_images(input_dir, output_csv, conf_thres=0.25, iou_thres=0.45):
+    """
+    批量檢測目錄中的所有影像，並將結果保存到 CSV 文件。
+    """
+    input_path = Path(input_dir)
+    if not input_path.exists() or not input_path.is_dir():
+        raise ValueError(f"輸入目錄不存在：{input_dir}")
+
+    # 創建輸出 CSV 文件
+    with open(output_csv, mode="w", newline="") as csvfile:
+        fieldnames = ["image_name", "class", "confidence", "xmin", "ymin", "xmax", "ymax", "timestamp"]
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+
+        # 遍歷目錄中的影像
+        image_files = [f for f in input_path.iterdir() if f.suffix.lower() in [".jpg", ".jpeg", ".png"]]
+        if not image_files:
+            raise ValueError(f"目錄中沒有找到影像文件：{input_dir}")
+
+        print(f"🚀 開始檢測目錄：{input_dir}，共 {len(image_files)} 張影像")
+        for image_file in image_files:
+            print(f"🔍 檢測影像：{image_file}")
+            try:
+                results = analyze_image(image_file, conf_thres, iou_thres)
+                for result in results:
+                    writer.writerow({
+                        "image_name": image_file.name,
+                        "class": result["class"],
+                        "confidence": result["confidence"],
+                        "xmin": result["xmin"],
+                        "ymin": result["ymin"],
+                        "xmax": result["xmax"],
+                        "ymax": result["ymax"],
+                        "timestamp": datetime.now().isoformat()
+                    })
+            except Exception as e:
+                print(f"❌ 檢測過程發生錯誤：{image_file}, 錯誤信息：{e}")
+
 
 if __name__ == "__main__":
-    test_image_path = "/home/ntc/dino/工安管理/ai-new/data/images/186510343_1816338865193347_2587363028274937400_n.jpg"
+    # 測試目錄路徑
+    input_dir = "/home/ntc/dino/工安管理/ai-new/data/images"  # 修改為您的影像目錄路徑
+    output_csv = "/home/ntc/dino/工安管理/ai-new/data/results.csv"  # 保存檢測結果的 CSV 文件
 
-    print(f"🚀 開始檢測影像：{test_image_path}")
     try:
-        results = analyze_image(test_image_path)
-        print("✅ 檢測結果如下：")
-        for result in results:
-            print(f"類別：{result['label']}, 信心：{result['confidence']:.2f}, 邊界框：{result['bbox']}")
+        batch_analyze_images(input_dir, output_csv, conf_thres=0.25, iou_thres=0.45)
+        print(f"✅ 批量檢測完成，結果已保存到：{output_csv}")
     except Exception as e:
-        print(f"❌ 發生錯誤：{e}")
+        print(f"❌ 批量檢測過程發生錯誤：{e}")
