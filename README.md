@@ -1,57 +1,152 @@
-# AI Twins Work Safety
+# 法規爬蟲工具
 
-## 專案簡介
-本專案旨在提供工作現場安全管理解決方案，整合法規資料爬取、向量資料庫建立、圖片安全檢測與即時通知功能，藉此協助企業預防安全隱患並遵守相關法規。
+這是一個專門用於抓取台灣法務部法規資料庫的自動化工具，可以將法規內容結構化並匯出成易於分析的格式。
 
-## 專案架構
-- **core**  
-  - 負責核心業務邏輯，包括：  
-    - 法規爬取與條文格式化（scraper.py）  
-    - 法規向量化及儲存（vectorizer.py）  
-    - 根據違規類型查詢相關法規（search_laws.py）
-    
-- **data**  
-  - 存放原始與處理後的 CSV 數據、向量資料庫（Chroma/FAISS）等。
+## 📂 專案架構
 
-- **models**  
-  - 整合圖片檢測模型（YOLOv5 模型與 image_analyzer.py），負責檢測工安圖片中的違規情形。
+```
+ai-new/
+├── core/               # 核心功能模組
+│   ├── scraper.py     # 爬蟲核心邏輯
+│   └── server.py      # API服務器邏輯
+├── data/              # 資料存放目錄
+│   └── laws.csv       # 輸出的法規資料
+├── scraper_main.py    # 主程式入口
+├── server_main.py     # 服務器入口
+└── requirements.txt   # 相依套件清單
+```
 
-- **utils**  
-  - 通用工具與外部服務整合，包括：  
-    - 訊息紀錄工具（logger.py）  
-    - Line Bot 與 Flask 網頁服務工具（linebot_utils.py）
+### 核心模組說明
+- `scraper.py`: 包含資料爬取、清理和格式化的核心功能
+- `scraper_main.py`: 爬蟲程式進入點
+- `server.py`: 包含 RESTful API 實作
+- `server_main.py`: API伺服器進入點
 
-- **其他檔案**  
-  - 主程式入口（main.py），啟動 Flask 伺服器  
-  - 法規爬取程式（scraper_main.py）與向量化程式（vectorizer_main.py）
+## 🔄 處理邏輯
 
-## 依賴與環境設定
-- Python 3.8+
-- 需安裝以下主要 Python 套件：
-  - flask
-  - line-bot-sdk
-  - pandas
-  - opencv-python
-  - torch
-  - langchain、langchain_openai、langchain_community
-  - beautifulsoup4 等
+### 資料擷取流程
+1. **網頁爬取**
+   - 發送請求到法務部法規網站
+   - 取得原始HTML內容
+   
+2. **資料解析**
+   - 清理HTML標記
+   - 提取法規條文內容
+   
+3. **結構化處理**
+   - 分離條號與條文
+   - 整理附註資訊
+   
+4. **資料儲存**
+   - 轉換成CSV格式
+   - 寫入檔案系統
 
-請先執行以下指令安裝相依套件：
+### API服務流程
+1. **資料載入**
+   - 讀取已爬取的CSV資料
+   - 建立資料索引
+   
+2. **API端點**
+   - `/api/laws`: 獲取所有法規列表
+   - `/api/laws/<id>`: 獲取特定條文
+   - `/api/search`: 關鍵字搜尋
+
+3. **外部存取**
+   - 通過ngrok建立安全通道
+   - 產生公開存取URL
+
+### 錯誤處理機制
+- 網路連線異常處理
+- 解析失敗補救措施
+- 資料完整性驗證
+
+## 🔧 系統需求
+
+- Python 3.6+
+- 相關套件需求請參考 `requirements.txt`
+- ngrok
+
+## 🚀 使用說明
+
+### 安裝步驟
+
+1. 下載專案
+```bash
+git clone [repository-url]
+cd ai-new
+```
+
+2. 建立虛擬環境
+```bash
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
+# or
+venv\Scripts\activate  # Windows
+```
+
+3. 安裝相依套件
 ```bash
 pip install -r requirements.txt
 ```
 
-## 啟動專案伺服器（LineBot 工安助手）：
-```bash
-python main.py
+### 執行方式
+
+1. 設定目標法規
+```python
+url = "https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=N0060014"
 ```
 
-## 法規爬取與向量化：
-- 執行 scraper_main.py 進行法規爬取及資料清洗
-- 執行 vectorizer_main.py 進行法規向量化與資料庫建立
+2. 執行爬蟲
+```bash
+python scraper_main.py
+```
 
-## 貢獻指南
-歡迎透過 issue 與 pull request 參與專案開發，請依照專案規範提交修改。
+### 啟動服務器
 
-## 授權
-本專案採用 MIT 授權，請參閱 LICENSE 檔案以了解詳細資訊。
+1. 啟動API服務器
+```bash
+python server_main.py
+```
+
+2. 啟動ngrok通道
+```bash
+ngrok http 5000
+```
+
+服務器預設設定：
+- 本地端口: 5000
+- API文件: http://localhost:5000/docs
+- 健康檢查: http://localhost:5000/health
+
+### API使用範例
+
+獲取所有法規：
+```bash
+curl http://localhost:5000/api/laws
+```
+
+搜尋特定條文：
+```bash
+curl http://localhost:5000/api/search?keyword=安全
+```
+
+## 📊 輸出格式
+
+CSV檔案結構：
+- 條號 (Article_ID)
+- 條文內容 (Content)
+- 附註說明 (Notes)
+
+## ⚠️ 注意事項
+
+1. 請遵守法務部網站使用規範
+2. 建議設定適當的爬取延遲時間
+3. 僅供學術研究使用
+
+## 📝 授權說明
+
+本專案採用 MIT 授權條款 - 詳見 [LICENSE](LICENSE) 檔案
+
+## 📮 聯絡方式
+
+如有任何問題，請聯繫專案維護者 [your-email@example.com]
