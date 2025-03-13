@@ -110,7 +110,7 @@ python server_main.py
 
 2. 啟動ngrok通道
 ```bash
-ngrok http 5000
+ngrok http 10008
 ```
 
 服務器預設設定：
