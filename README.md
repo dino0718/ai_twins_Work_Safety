@@ -1,144 +1,126 @@
-# 法規爬蟲工具
+# AI 工安管理系統
 
-這是一個專門用於抓取台灣法務部法規資料庫的自動化工具，可以將法規內容結構化並匯出成易於分析的格式。
+這是一個利用 AI 技術進行工安違規檢測並提供相關法規匹配的自動化系統。
 
 ## 📂 專案架構
 
 ```
-ai-new/
-├── core/               # 核心功能模組
-│   ├── scraper.py     # 爬蟲核心邏輯
-│   └── server.py      # API服務器邏輯
-├── data/              # 資料存放目錄
-│   └── laws.csv       # 輸出的法規資料
-├── scraper_main.py    # 主程式入口
-├── server_main.py     # 服務器入口
-└── requirements.txt   # 相依套件清單
+ai_twins_Work_Safety/
+├── core/                      # 核心功能模組
+│   ├── vectorizer.py         # 向量化法規資料
+│   └── search_laws.py        # 法規搜尋功能
+├── utils/                     # 工具模組
+│   └── linebot_utils.py      # LineBot 整合
+├── data/                      # 資料存放目錄
+│   ├── laws.csv              # 法規資料
+│   └── chroma_db/            # 向量資料庫
+├── vectorizer_main.py         # 向量化主程式
+└── README.md                  # 專案說明
 ```
 
 ### 核心模組說明
-- `scraper.py`: 包含資料爬取、清理和格式化的核心功能
-- `scraper_main.py`: 爬蟲程式進入點
-- `server.py`: 包含 RESTful API 實作
-- `server_main.py`: API伺服器進入點
+
+- **vectorizer.py**: 負責將法規資料向量化並存入 FAISS 資料庫
+- **search_laws.py**: 提供法規搜尋功能，將違規行為與相關法規匹配
+- **linebot_utils.py**: 整合 LINE Bot 功能，提供使用者查詢介面
 
 ## 🔄 處理邏輯
 
-### 資料擷取流程
-1. **網頁爬取**
-   - 發送請求到法務部法規網站
-   - 取得原始HTML內容
-   
-2. **資料解析**
-   - 清理HTML標記
-   - 提取法規條文內容
-   
-3. **結構化處理**
-   - 分離條號與條文
-   - 整理附註資訊
-   
-4. **資料儲存**
-   - 轉換成CSV格式
-   - 寫入檔案系統
+### 資料向量化流程
 
-### API服務流程
 1. **資料載入**
-   - 讀取已爬取的CSV資料
-   - 建立資料索引
+   - 從 CSV 文件加載法規數據
+   - 準備向量化處理
    
-2. **API端點**
-   - `/api/laws`: 獲取所有法規列表
-   - `/api/laws/<id>`: 獲取特定條文
-   - `/api/search`: 關鍵字搜尋
+2. **向量嵌入**
+   - 使用 OpenAI Embeddings 進行向量化
+   - 將法規轉換為向量表示
+   
+3. **向量儲存**
+   - 建立 FAISS 向量索引
+   - 儲存到本地向量資料庫
 
-3. **外部存取**
-   - 通過ngrok建立安全通道
-   - 產生公開存取URL
+### 違規檢測與法規匹配流程
 
-### 錯誤處理機制
-- 網路連線異常處理
-- 解析失敗補救措施
-- 資料完整性驗證
+1. **檢測結果處理**
+   - 讀取違規檢測 CSV 文件
+   - 篩選低置信度項目進行法規匹配
+   
+2. **法規匹配**
+   - 根據違規類型查詢相關法規
+   - 使用向量相似度搜尋最相關法條
+   
+3. **結果輸出**
+   - 整合違規信息與法規
+   - 輸出至 CSV 文件
+
+### LINE Bot 服務流程
+
+1. **用戶互動**
+   - 接收用戶查詢
+   - 解析查詢意圖
+   
+2. **法規搜尋**
+   - 調用法規搜尋功能
+   - 匹配相關法規條文
+   
+3. **回覆處理**
+   - 格式化法規信息
+   - 返回用戶查詢結果
 
 ## 🔧 系統需求
 
-- Python 3.6+
-- 相關套件需求請參考 `requirements.txt`
-- ngrok
+- Python 3.8+
+- OpenAI API 金鑰
+- LINE Messaging API 金鑰 (用於 LINE Bot 功能)
+- 相關 Python 套件：
+  - langchain
+  - openai
+  - flask
+  - linebot
+  - pandas
+  - faiss-cpu
 
 ## 🚀 使用說明
 
-### 安裝步驟
+### 向量化法規資料
 
-1. 下載專案
 ```bash
-git clone [repository-url]
-cd ai-new
+python vectorizer_main.py
 ```
 
-2. 建立虛擬環境
+### 處理違規檢測結果
+
 ```bash
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# or
-venv\Scripts\activate  # Windows
+python -c "from core.search_laws import process_violations_with_laws; process_violations_with_laws('data/violation_results.csv', 'data/violations_with_laws.csv')"
 ```
 
-3. 安裝相依套件
+### 啟動 LINE Bot 服務
+
 ```bash
-pip install -r requirements.txt
-```
-
-### 執行方式
-
-1. 設定目標法規
-```python
-url = "https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=N0060014"
-```
-
-2. 執行爬蟲
-```bash
-python scraper_main.py
-```
-
-### 啟動服務器
-
-1. 啟動API服務器
-```bash
-python server_main.py
-```
-
-2. 啟動ngrok通道
-```bash
-ngrok http 10008
-```
-
-服務器預設設定：
-- 本地端口: 5000
-- API文件: http://localhost:5000/docs
-- 健康檢查: http://localhost:5000/health
-
-### API使用範例
-
-獲取所有法規：
-```bash
-curl http://localhost:5000/api/laws
-```
-
-搜尋特定條文：
-```bash
-curl http://localhost:5000/api/search?keyword=安全
+export LINE_CHANNEL_SECRET=your_channel_secret
+export LINE_CHANNEL_ACCESS_TOKEN=your_channel_access_token
+export OPENAI_API_KEY=your_openai_api_key
+python app.py
 ```
 
 ## 📊 輸出格式
 
-CSV檔案結構：
-- 條號 (Article_ID)
-- 條文內容 (Content)
-- 附註說明 (Notes)
+### 違規檢測結果匹配法規後的 CSV 格式
+
+| 欄位名稱 | 說明 |
+|---------|------|
+| image_name | 檢測圖片檔名 |
+| class | 違規類型 |
+| confidence | 檢測置信度 |
+| xmin, ymin, xmax, ymax | 違規項目在圖片中的位置 |
+| law | 相關法規條文 |
+| source | 法規來源 |
+| timestamp | 處理時間戳記 |
 
 ## ⚠️ 注意事項
 
-1. 請遵守法務部網站使用規範
-2. 建議設定適當的爬取延遲時間
-3. 僅供學術研究使用
+- 確保所有 API 金鑰妥善保存，避免硬編碼在程式中
+- 處理大量資料時可能需要較長時間，請耐心等待
+- 違規檢測結果的準確性會影響法規匹配的相關性
+- 定期更新法規資料庫以確保法規的時效性
